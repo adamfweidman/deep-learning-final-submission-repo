@@ -102,9 +102,20 @@ python scripts/retrieval_overlay.py \
 
 ## Trained adapter weights
 
-- **iter4-vd `adapter_best/`** (val 0.8225, with retrieval public LB **0.861** — winning submission): see `WEIGHTS.md`.
-- **V_β `adapter_best/`** (val 0.8073, public LB 0.86): see `WEIGHTS.md`.
-- **final-fit `adapter_best/`** (val 0.8674 leaky, public 0.823): see `WEIGHTS.md`.
+The iter4-vd adapter (the base for the 0.861 winning submission) is here:
+
+**https://drive.google.com/file/d/1H9PaPqCkqgfRtIRiNhHy4e5lf58VGJ63/view?usp=sharing**
+
+Download, unzip, and place at `./adapter_best/`, then run:
+
+```bash
+# Edit configs/infer_iter4_vd_best.yaml to set adapter_path to ./adapter_best/, then:
+python -m src.run --config configs/infer_iter4_vd_best.yaml
+python scripts/retrieval_overlay.py \
+  --base-submission runs/2026-05-06-infer-iter4-vd-best/submission.csv \
+  --hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match \
+  --out runs/retrieval-vd-h4q085/
+```
 
 > If the link is unreachable, please email afw8937@nyu.edu.
 

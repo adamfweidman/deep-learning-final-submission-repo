@@ -19,13 +19,33 @@ Public code release. Multimodal multiple-choice reasoning on the **Pixels to Pre
 
 **Headline:** the best public-LB result is **iter4-vd + retrieval at 0.861** (a higher-LR LoRA with the perceptual-hash retrieval overlay). Plain V_β at 0.86 is a close second. Two submissions we expected to do better — finfit and finfit + retrieval — actually scored lower on public despite higher local val. See the report for the analysis.
 
-## Reproducing the 0.861 submission
+## Quickstart: reproduce the 0.861 submission
 
-Three components fully reproduce the winning submission:
+```bash
+# 1. install deps
+pip install -r requirements.txt
 
-1. **iter4-vd adapter** — config at `configs/train_lora_iter4_vd_lr4e4.yaml`. Train with `python -m src.run --config configs/train_lora_iter4_vd_lr4e4.yaml`, or download the trained adapter from `WEIGHTS.md` (link added at submission time) and place it at `./adapter_best/`.
-2. **Retrieval overlay** — `scripts/retrieval_overlay.py` with thresholds `--hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match`.
-3. **pHash cache** — should live at `data/phash_cache/{train,val,test}_phash.json`. The retrieval script auto-computes this on first run and caches it; the cache is data-derived (model-independent) and one-time.
+# 2. download competition data
+python -c "import kagglehub; print(kagglehub.competition_download('pixels-to-predictions'))"
+# then symlink into ./data/ per DATA.md
+
+# 3. download the trained iter4-vd adapter and unzip into ./adapter_best/
+#    https://drive.google.com/file/d/1H9PaPqCkqgfRtIRiNhHy4e5lf58VGJ63/view?usp=sharing
+
+# 4. run inference (writes runs/infer-iter4-vd/submission.csv + val_scores.json)
+python -m src.run --config configs/infer_iter4_vd_local.yaml
+
+# 5. apply retrieval overlay (writes runs/retrieval-vd-h4q085/submission_retrieval.csv)
+python scripts/retrieval_overlay.py \
+    --base-submission runs/infer-iter4-vd/submission.csv \
+    --base-val-scores runs/infer-iter4-vd/val_scores.json \
+    --hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match \
+    --out runs/retrieval-vd-h4q085/
+```
+
+The retrieval overlay auto-builds the pHash cache at `data/phash_cache/{train,val,test}_phash.json` on first run (~30–90 s) and reuses it on subsequent runs.
+
+The `configs/infer_iter4_vd_local.yaml` quickstart config is configured with all-local paths (`./adapter_best/`, `./hf_cache/`, `runs/`). The other configs in `configs/` (e.g. `infer_iter4_vd_best.yaml`, `train_lora_*.yaml`) use HPC-style `/scratch/${USER}/...` paths and are kept for transparency about the exact experiments run; edit `adapter_path`, `output_dir`, and `preflight.hf_cache_dir` to local paths if you want to use them on a non-HPC system.
 
 ## Repo layout
 
@@ -75,54 +95,22 @@ python -m src.run --config configs/train_lora_v3b_allmod_permute.yaml
 python -m src.run --config configs/train_lora_final_fit.yaml
 ```
 
-### Inference + submission CSV
-
-```bash
-# For the winning iter4-vd + retrieval pipeline:
-# Set adapter_path in configs/infer_iter4_vd_best.yaml to your adapter_best path, then:
-python -m src.run --config configs/infer_iter4_vd_best.yaml
-
-# (Or for the V_β baseline at 0.86 public, use configs/infer_vb_best.yaml)
-```
-
-### Retrieval overlay (the post-processor that produced 0.861)
-
-```bash
-python scripts/retrieval_overlay.py \
-  --base-submission runs/2026-05-06-infer-iter4-vd-best/submission.csv \
-  --hamming-thresh 4 \
-  --qsim-thresh 0.85 \
-  --require-choice-match \
-  --out runs/retrieval-vd-h4q085/
-```
-
 ### Inference notebook (Colab/Kaggle-runnable)
 
-`notebooks/submission-notebook.ipynb` is **inference-only**: loads the adapter from Drive, generates `submission.csv`, runs offline. Suitable for the Kaggle judge.
+`notebooks/submission-notebook.ipynb` is **inference-only**: loads the adapter, generates `submission.csv`, then optionally applies the retrieval overlay. Set `ADAPTER_PATH` to your local adapter directory and `DATA_DIR` to your local data directory before running.
 
 ## Trained adapter weights
 
-The iter4-vd adapter (the base for the 0.861 winning submission) is here:
+The iter4-vd adapter (the base for the 0.861 winning submission):
 
 **https://drive.google.com/file/d/1H9PaPqCkqgfRtIRiNhHy4e5lf58VGJ63/view?usp=sharing**
 
-Download, unzip, and place at `./adapter_best/`, then run:
-
-```bash
-# Edit configs/infer_iter4_vd_best.yaml to set adapter_path to ./adapter_best/, then:
-python -m src.run --config configs/infer_iter4_vd_best.yaml
-python scripts/retrieval_overlay.py \
-  --base-submission runs/2026-05-06-infer-iter4-vd-best/submission.csv \
-  --hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match \
-  --out runs/retrieval-vd-h4q085/
-```
-
-> If the link is unreachable, please email afw8937@nyu.edu.
+Download and unzip into `./adapter_best/`. The Drive link is set to "Anyone with the link can view." If you hit a permission wall, please email afw8937@nyu.edu.
 
 ## Reproducibility
 
 - **Fixed seeds.** `src/run.py:_seed_all` seeds `random`, `numpy`, `torch` (CPU + CUDA), `transformers.set_seed`, `PYTHONHASHSEED`, and forces cuDNN deterministic. Default seed is 42 for inference and 43 for V_β training (matches the seed in `configs/train_lora_v3b_allmod_permute.yaml`).
-- **Pinned deps.** `requirements.txt` and `pyproject.toml` pin exact versions of `torch==2.11.0` and `transformers==4.57.6`.
+- **Pinned deps.** `requirements.txt` pins `torch==2.11.0`, `transformers==4.57.6`, `peft`, and `accelerate` to exact versions used during training.
 - **Offline inference.** Inference path (`mode=infer` in YAML) sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `local_files_only=True`; works without internet once the cache is populated.
 - **DataLoader determinism.** Per-epoch generators seeded with `seed + epoch`. `TOKENIZERS_PARALLELISM=false` set before transformers import to avoid the fork deadlock observed on HPC.
 - **Expected numbers.** With the V_β config above and seed 43, val_accuracy at epoch 4 should be 0.8073 ± 0.005.

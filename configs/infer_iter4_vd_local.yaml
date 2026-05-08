@@ -1,0 +1,34 @@
+# Local-paths quickstart for the winning iter4-vd inference pipeline.
+# Drop the trained adapter at ./adapter_best/ (download from the Drive link
+# in README.md) and run:
+#
+#   python -m src.run --config configs/infer_iter4_vd_local.yaml
+#
+# Then apply the retrieval overlay:
+#
+#   python scripts/retrieval_overlay.py \
+#       --base-submission runs/infer-iter4-vd/submission.csv \
+#       --base-val-scores runs/infer-iter4-vd/val_scores.json \
+#       --hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match \
+#       --out runs/retrieval-vd-h4q085/
+
+attempt_id: "infer-iter4-vd-local"
+level: "exploratory"
+experiment:
+  name: "infer-iter4-vd-local"
+  question: "Reproduce the iter4-vd base submission from local paths."
+  branch: "exploit"
+model: {name: "HuggingFaceTB/SmolVLM-500M-Instruct", dtype: "bfloat16", max_tokens: 8192}
+data: {data_dir: "data", train_csv: "data/train.csv", val_csv: "data/val.csv", test_csv: "data/test.csv", sample_submission_csv: "data/sample_submission.csv"}
+run:
+  mode: "infer"
+  output_dir: "runs/infer-iter4-vd"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+  batch_size: 32
+  adapter_path: "./adapter_best"
+train: {eval_num_workers: 4}
+preflight: {hf_cache_dir: "./hf_cache", download_first: true, snapshot_only: false, offline_after: false}
+resources: {}
+notes: "Local-paths quickstart. download_first=true so the SmolVLM checkpoint is fetched from HF on first run."

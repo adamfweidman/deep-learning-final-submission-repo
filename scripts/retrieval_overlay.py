@@ -1,12 +1,12 @@
 """Apply pHash + question-similarity direct-copy overlay on top of a
-base submission (e.g. V_β's submission.csv).
+base submission (e.g. iter4-vd's submission.csv).
 
 Usage:
   python scripts/retrieval_overlay.py \
-    --base-submission /scratch/.../runs/2026-05-06-infer-vb-best/submission.csv \
-    --base-val-scores /scratch/.../runs/2026-05-06-infer-vb-best/val_scores.json \
-    --hamming-thresh 2 --qsim-thresh 0.85 --require-choice-match \
-    --out /scratch/.../runs/2026-05-06-retrieval-overlay/
+    --base-submission runs/infer-iter4-vd/submission.csv \
+    --base-val-scores runs/infer-iter4-vd/val_scores.json \
+    --hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match \
+    --out runs/retrieval-vd-h4q085/
 
 The script:
   1. Reads `data/{train,val,test}.csv`.

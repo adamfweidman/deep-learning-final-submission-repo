@@ -12,7 +12,7 @@ print("Path to competition files:", path)
 Downloaded cache path:
 
 ```text
-/scratch/afw8937/midterm-project/cache/kagglehub/competitions/pixels-to-predictions
+/scratch/${USER}/deep-learning-final/cache/kagglehub/competitions/pixels-to-predictions
 ```
 
 Project-local `data/` is a symlink layout that preserves the CSV

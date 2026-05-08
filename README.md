@@ -11,10 +11,13 @@ Public code release. Multimodal multiple-choice reasoning on the **Pixels to Pre
 | Always-A baseline | 0.331 | — |
 | Zero-shot SmolVLM-500M | 0.558 | — |
 | LoRA r=8 / all 7 modules / α=16 (lora-001) | 0.7767 | — |
-| **V_β** (r=8, all 7, α=8, choice-permute) | **0.8073** | **0.86** |
+| **V_β** (r=8, all 7, α=8, choice-permute) | **0.8073** | **0.86** ← best |
 | iter4-vd (V_β + lr=4e-4) | 0.8225 | 0.84 |
 | iter4-vd + retrieval (h=4, qsim=0.85) | 0.8483 | 0.86 |
-| **finfit (train+val) + retrieval (h=4)** | 0.8874 (leaky) | best expected |
+| finfit (train+val) | 0.8674 (leaky) | 0.823 |
+| finfit + retrieval (h=4) | 0.8874 (leaky) | 0.849 |
+
+**Headline:** plain V_β at 0.86 is the top public-LB result. Two submissions we expected to do better — finfit and finfit + retrieval — actually scored lower on public despite higher local val. See the report for analysis.
 
 ## Repo layout
 

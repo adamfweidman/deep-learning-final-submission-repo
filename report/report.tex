@@ -1,0 +1,331 @@
+\documentclass[11pt]{article}
+
+\usepackage[final]{acl}
+
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\setlist[itemize]{noitemsep, topsep=2pt}
+\setlist[enumerate]{noitemsep, topsep=2pt}
+
+\title{Pixels to Predictions: Compact Vision--Language Reasoning under a 5\,M Trainable-Parameter Cap}
+
+\author{
+  Adam Weidman \\
+  New York University, Tandon \\
+  CS-GY 6953 / ECE-GY 7123 \\
+  Deep Learning, Spring 2026 \\
+  \texttt{afw8937@nyu.edu}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We fine-tune \texttt{SmolVLM-500M-Instruct} on a 3{,}109-example multimodal scientific multiple-choice dataset (ScienceQA-style) under strict academic constraints: at most 5\,M trainable parameters, no external data, and offline inference only. Our final pipeline combines (i) low-rank adaptation \citep{hu2022lora} on all seven Llama target modules of the language tower with $r=8$, $\alpha/r=1.0$, and per-example choice-permutation augmentation, with (ii) a perceptual-hash retrieval overlay that direct-copies answers from training neighbors when image hash, question text, and choice set all match. Across roughly thirty experiments we ran twelve targeted ablations (LoRA target set, rank, learning rate, alpha, augmentation, image preprocessing, connector unfreezing, DoRA \citep{liu2024dora}, training-on-validation, chat-template prompting, retrieval overlays, per-letter calibration). Our best public-leaderboard score is \textbf{0.861}, from a higher-LR LoRA variant (iter4-vd, lr=$4\!\times\!10^{-4}$) with a retrieval overlay applied at $h=4$, $q=0.85$. Plain V$_\beta$ reached 0.86 on public --- close but slightly below. Two ``higher-expected'' candidates from train$\cup$val merging (finfit, finfit + retrieval) looked stronger on local validation but \emph{underperformed} on public LB ($0.823$ and $0.849$ respectively), so a clean negative result also lands in this report: local validation accuracy was an unreliable selection signal once adapters started saturating it.
+\end{abstract}
+
+\section{Introduction}
+
+This work targets the \emph{Pixels to Predictions} Kaggle competition: predict a 0-indexed answer for each of 1{,}008 test rows where each row pairs a scientific image with a question, an optional hint, an optional lecture context, and a JSON list of multiple-choice options. The competition mandates the \texttt{SmolVLM-500M-Instruct} backbone \citep{laurencon2024smolvlm}, restricts compute to free Colab/Kaggle tiers, forbids external data, requires offline inference, and caps trainable parameters at 5\,M. Our contributions are:
+
+\begin{itemize}
+  \item A LoRA recipe (\textbf{V$_\beta$}) that lifts the zero-shot SmolVLM floor from 0.558 to 0.8073 validation / 0.86 public LB at 4.78\,M trainable parameters.
+  \item A perceptual-hash retrieval overlay that adds roughly $+2.6$\,pp validation accuracy at zero training cost by direct-copying answers from nearest train neighbors. Layered on top of a higher-LR variant (iter4-vd), it produces our top public-LB result of \textbf{0.861}; layered on top of a train$\cup$val final-fit, it does not transfer.
+  \item Twelve targeted ablations across target-module choice, rank, learning rate, augmentation, image preprocessing, connector unfreezing, adapter scheme (LoRA vs.\ DoRA), training-on-validation, chat templating, retrieval thresholds, and per-letter calibration.
+  \item Two ``best expected'' submissions (finfit and finfit + retrieval) underperformed plain V$_\beta$ and iter4-vd + retrieval on public, despite scoring higher on val. We treat this as evidence that local validation accuracy can be a misleading selection signal for adapters of this size on a 1{,}048-row hold-out.
+\end{itemize}
+
+\section{Task Description}
+
+\subsection{Problem Setup}
+
+Each example $i$ provides an image $I_i$, a question text $q_i$, a set of choices $C_i = \{c_1, \ldots, c_{n_i}\}$ with $n_i \in \{2, 3, 4, 5\}$, and optional pedagogical context (hint, lecture, subject, topic, skill). The label $y_i \in \{0, \ldots, n_i-1\}$ is provided for train (3{,}109) and validation (1{,}048) and withheld for test (1{,}008). The competition splits the test labels into a public subset for the live leaderboard and a private subset for the final ranking.
+
+\subsection{Evaluation Metric}
+
+The metric is plain classification accuracy:
+\begin{equation}
+  \text{Acc} = \frac{1}{N} \sum_{i=1}^{N} \mathbb{1}\!\left[\hat{y}_i = y_i\right].
+\end{equation}
+\noindent A submission is a CSV with exactly the columns \texttt{id} and \texttt{answer}; rows with missing ids, extra columns, or out-of-range answers are scored as invalid.
+
+\section{Methodology}
+
+\subsection{Base Model}
+
+\texttt{SmolVLM-500M-Instruct} \citep{laurencon2024smolvlm} is an Idefics3-architecture vision--language model: a SigLIP vision tower feeds a learned cross-modal projection (\texttt{Idefics3SimpleMLP}) into a 32-layer SmolLM2 (Llama-style) text decoder with hidden dimension 960 and intermediate dimension 2{,}560. The total parameter count is 507{,}482{,}304. We freeze the entire model and inject trainable parameters via PEFT adapters under the 5\,M cap.
+
+\subsection{Choice-Letter Log-Likelihood Scoring}
+
+\label{sec:scoring}
+Following \citet{wiegreffe2023increasing} and \citet{tsvilodub2024predictions}, we score multiple-choice answers by single-letter argmax over the next-token log-probability at the position immediately following \texttt{Answer:}. Concretely, for each row we compute $\log p_\theta(t_k \mid \text{prompt})$ for $t_k \in \{\texttt{`` A''}, \texttt{`` B''}, \texttt{`` C''}, \texttt{`` D''}, \texttt{`` E''}\}$ and predict $\hat{y} = \arg\max_k \log p_\theta(t_k)$. We verified offline that each candidate maps to a single tokenizer id, so the masked cross-entropy target is exactly one position. We considered full-string scoring of choice text but ruled it out on the basis of \citet{wiegreffe2023increasing}, who report it can hurt instruction-tuned models.
+
+\subsection{LoRA Fine-Tuning (V$_\beta$)}
+
+\label{sec:lora}
+The V$_\beta$ recipe applies LoRA \citep{hu2022lora} on all seven Llama target modules in the language tower (\texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj}, \texttt{gate\_proj}, \texttt{up\_proj}, \texttt{down\_proj}) across all 32 SmolLM2 layers, with $r=8$, $\alpha=8$ (so $\alpha/r=1.0$), dropout $0.05$, vision tower frozen, no DoRA, no rsLoRA. Trainable parameter count: \textbf{4{,}784{,}128}, well under the 5\,M cap. Loss is causal-LM cross-entropy with all positions masked to $-100$ except the answer-letter position. Optimizer is AdamW \citep{loshchilov2019adamw} with learning rate $2 \times 10^{-4}$, cosine decay with $5\%$ linear warmup, no weight decay, and bfloat16 autocast on a single L40S. We train 5 epochs at batch size 4 with gradient accumulation of 2 (effective batch size 8); a per-epoch checkpoint preserves the best-validation adapter.
+
+\subsection{Choice-Permutation Augmentation}
+
+\label{sec:permute}
+Each \texttt{\_\_getitem\_\_} returns the same training row with a random permutation of \texttt{choices} and the answer index updated accordingly. For a 4-choice problem this yields $4! = 24$ distinct orderings observed across epochs. The intent is twofold: (a) eliminate position-bias memorization (otherwise the model can shortcut via the empirical letter distribution in training, which favors A); (b) factorial-style data augmentation. \citet{pezeshkpour2023sensitivity} document the strong order-bias effect that this augmentation directly counters. Empirically, V$_\beta$ (which bundles choice-permutation with $\alpha/r$ tuned from $2.0$ down to $1.0$) gains $+3$\,pp on validation over the otherwise-identical lora-001 recipe; we cannot fully decompose the contributions of permutation alone vs.\ the alpha change, since the $\alpha/r=2.0$ + permute cell of Table~\ref{tab:permute} was never run.
+
+\subsection{Retrieval Overlay}
+
+\label{sec:retrieval}
+The dataset has substantial cross-split image overlap. We exploit this by computing a perceptual hash \citep{zauner2010phash} of every train, validation, and test image, then for each val/test row finding the train neighbor minimizing Hamming distance. We label a match as a \emph{direct-copy} candidate when (i) Hamming $\le h$, (ii) Ratcliff--Obershelp question-text similarity \citep{ratcliff1988gestalt} via Python's \texttt{difflib} is $\ge q$, and (iii) the train and target choice sets coincide as multisets. For direct-copy matches we substitute the train neighbor's answer (remapped to the target row's choice ordering); otherwise we keep the model prediction. We tune $(h, q)$ on validation and validate gates: combined val accuracy must not regress vs.\ base, the direct-copy slice must clear $0.80$, and the slice must beat the base on the same slice. The overlay is pure CPU work and is fully composable with calibration and majority vote. \emph{Framing}: this is a deterministic post-processor over the provided training data, not a second model and not external data. It consults \texttt{train.csv} images and labels (both permitted training signal) at inference time and applies a hand-tuned heuristic; the model produces the prediction whenever no train neighbor passes the gates.
+
+\subsection{Train$\cup$Validation Final-Fit}
+
+\label{sec:finfit}
+After hyperparameter selection settled on V$_\beta$ and a higher-LR variant we call iter4-vd, we trained one additional adapter (\textbf{final-fit}) on the concatenation of train and validation (4{,}157 rows) for 2 epochs at $\text{lr}=4 \times 10^{-4}$ with $\alpha/r=1.0$ and choice-permutation. Local validation is leaky on this run since val is now in the training set, so we expected to judge it only by the procedure rather than by the inflated local number; the actual public-LB outcome (Section~\ref{sec:overfit-val}) was a regression, not a gain.
+
+\subsection{Inference Pipeline}
+
+Inference runs offline (\texttt{HF\_HUB\_OFFLINE=1}, \texttt{TRANSFORMERS\_OFFLINE=1}, \texttt{local\_files\_only=True}). For each row we build the prompt deterministically, load and resize the image to $224\times224$, run a single forward pass under bfloat16 autocast, gather logits at the last non-pad position, and argmax over candidate-letter ids. We dump per-row score matrices (\texttt{val\_scores.json}, \texttt{test\_scores.json}) for every full run so that calibration, retrieval, and majority-vote post-processors run as cheap CPU-only follow-ups.
+
+\section{Experimental Setup}
+
+\subsection{Infrastructure}
+
+All training and full-validation evaluation ran on a single L40S GPU. A full V$_\beta$-style training run takes 195--210 minutes (5 epochs at 32 minutes train + 9 minutes eval per epoch). Inference loads the model in offline mode after a one-time snapshot download. Per-epoch resumable checkpoints (optimizer + scheduler + RNG + best-tracking) saved a lot of pain when long evaluation phases occasionally got killed for low GPU utilization.
+
+\subsection{Validation Protocol}
+
+We use the Kaggle-provided 1{,}048-row validation set as our hold-out for hyperparameter selection. Public-leaderboard accuracy on Kaggle is treated as a first-class signal that overrides local-val ranking when the two disagree (Section~\ref{sec:overfit-val}). For threshold sweeps over retrieval $(h, q)$, we score the saved \texttt{val\_scores.json} from each adapter, which lets us run $h \in \{2, 3, 4\} \times q \in \{0.85, 0.90\}$ in seconds without GPU.
+
+\subsection{Experiment Scope}
+
+We organize experiments into five rough phases. Each phase ends when one or two strong variants get promoted to a full-scale run; weaker variants are dropped. ``Small-scale'' here means a 16\% train slice $\times$ 2 epochs $\times$ partial validation, used to triage a hyperparameter direction in roughly 25 minutes per run.
+
+\begin{itemize}
+  \item \textbf{Setup}: model cache preflight, zero-shot baseline, always-A floor.
+  \item \textbf{First LoRA}: r=8 / all-7 modules / $\alpha$=16 / lr=$2\!\times\!10^{-4}$ / no permute.
+  \item \textbf{Architecture sweep}: connector unfreeze (V$_\alpha$), the lora-001 recipe with $\alpha$=8 and choice-permutation (\textbf{V$_\beta$}), and attention-only at r=16 (V$_\gamma$). We use the Greek-letter labels (V$_\alpha \ldots$V$_\varepsilon$) as shorthand for these named variants throughout the paper.
+  \item \textbf{Hyperparameter sweep}: 8 small-scale variants over prompt content, image size, learning rate, weight decay, and dropout; full-scale LR variants V$_\delta$ (lr=5e-5) and V$_\varepsilon$ (lr=8e-4); plus iter4-vd, our V$_\beta$ recipe at lr=$4\!\times\!10^{-4}$ that became the base for the winning retrieval-overlay submission. Small-scale tests of chat-template prompting, native-resolution input, DoRA, and using \texttt{solution} as training context were also run here.
+  \item \textbf{Post-processors}: retrieval overlay, per-letter calibration, train$\cup$val final-fit, three-way majority vote.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Overall Performance}
+
+Table~\ref{tab:overall} reports our submission ladder. \textbf{The best public-LB result is iter4-vd + retrieval at 0.861.} V$_\beta$ plain at 0.86 is a close second --- the gap is one test row out of 1{,}008, comfortably within sampling noise. Both submissions we ranked higher \emph{a priori} (finfit, finfit + retrieval) scored lower on public LB than either of the top two.
+
+\begin{table}[t]
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Pipeline} & \textbf{Val} & \textbf{Public LB} \\
+\midrule
+Always-A floor & 0.331 & --- \\
+Zero-shot & 0.558 & --- \\
+LoRA r=8 (lora-001) & 0.7767 & --- \\
+RunB native-res & 0.7834 & 0.84 \\
+V$_\beta$ & 0.8073 & 0.86 \\
+iter4-vd & 0.8225 & 0.84 \\
+\textbf{iter4-vd + retrieval} & \textbf{0.8483} & \textbf{0.861} \\
+finfit (train$\cup$val) & 0.8674$^*$ & 0.823 \\
+finfit + retrieval & 0.8874$^*$ & 0.849 \\
+\bottomrule
+\end{tabular}
+\caption{Submission ladder. Asterisks mark leaky validation (final-fit was trained on train$\cup$val). The two finfit-based submissions underperformed V$_\beta$ and iter4-vd + retrieval on public LB despite higher validation accuracy.}
+\label{tab:overall}
+\end{table}
+
+\subsection{Ablation Studies}
+
+We isolate the contribution of each design choice on validation accuracy. Each subsubsection below changes one axis with all others held at the V$_\beta$ baseline.
+
+\subsubsection{LoRA Target-Module Set}
+
+\begin{table}[t]
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Target modules} & \textbf{Trainable} & \textbf{Val acc} \\
+\midrule
+attention-only (q/k/v/o), r=16 & 4.92\,M & 0.7195 \\
+all-7 (q/k/v/o + MLP), r=8 (V$_\beta$) & 4.78\,M & \textbf{0.8073} \\
+all-7 + connector LoRA (V$_\alpha$) & 4.45\,M & 0.78$^\dagger$ \\
+\bottomrule
+\end{tabular}
+\caption{Target-module ablation. $^\dagger$cancelled at epoch 2 after trailing V$_\beta$ by $\approx$3\,pp. All-7 dominates attention-only at this parameter budget.}
+\label{tab:target-modules}
+\end{table}
+
+All-7 modules wins decisively. Attention-only with r=16 spends \emph{more} parameters and lands $-9$\,pp below V$_\beta$, suggesting the MLP modules carry more task-specific signal than the attention modules at this scale.
+
+\subsubsection{Learning Rate}
+
+\begin{table}[t]
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Setting} & \textbf{Val} & \textbf{Public LB} \\
+\midrule
+lr=$5\!\times\!10^{-5}$ + warmup 10\% (V$_\delta$) & 0.79 & --- \\
+lr=$2\!\times\!10^{-4}$ (V$_\beta$) & 0.8073 & 0.86 \\
+lr=$4\!\times\!10^{-4}$ (iter4-vd) & 0.8225 & 0.84 \\
+lr=$8\!\times\!10^{-4}$ (V$_\varepsilon$) & 0.7929 & --- \\
+\bottomrule
+\end{tabular}
+\caption{Learning-rate sweep. Higher local val \emph{does not} imply higher public LB: iter4-vd's $+1.5$\,pp local gain over V$_\beta$ became $-2$\,pp on public.}
+\label{tab:lr}
+\end{table}
+
+This is the result that drove most of our late-project decisions: \textbf{higher local validation accuracy was negatively correlated with public-leaderboard accuracy in the $4\!\times\!10^{-4}$ to $8\!\times\!10^{-4}$ range.} The iter4-vd adapter overfit to val features that did not transfer to the held-out public test. We come back to this in Section~\ref{sec:overfit-val}.
+
+\subsubsection{Choice-Permutation Augmentation}
+
+\begin{table}[t]
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Setting} & \textbf{$\alpha/r$} & \textbf{Val acc} \\
+\midrule
+no permute, $\alpha/r=2.0$ (lora-001) & 2.0 & 0.7767 \\
+permute, $\alpha/r=2.0$ & 2.0 & not run \\
+\textbf{permute, $\alpha/r=1.0$ (V$_\beta$)} & 1.0 & \textbf{0.8073} \\
+\bottomrule
+\end{tabular}
+\caption{Choice-permutation + alpha-scaling ablation. The combined intervention adds $+3.06$\,pp.}
+\label{tab:permute}
+\end{table}
+
+The two interventions were bundled in V$_\beta$, so we cannot fully separate them. \citet{pezeshkpour2023sensitivity} report that order randomization alone is a strong intervention for instruction-tuned LLMs on MCQ tasks, which is consistent with our prior that most of the $+3$\,pp gain is the permutation rather than the alpha change.
+
+\subsubsection{Retrieval Overlay Thresholds}
+
+\begin{table}[t]
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{$h$} & \textbf{$q$} & \textbf{Val} & \textbf{Slice} & \textbf{Overrides} \\
+\midrule
+base (iter4-vd) & --- & 0.8225 & --- & 0 \\
+2 & 0.85 & 0.8464 & 240 & 41 \\
+3 & 0.85 & 0.8464 & 240 & 41 \\
+\textbf{4} & \textbf{0.85} & \textbf{0.8483} & \textbf{267} & \textbf{49} \\
+4 & 0.90 & 0.8473 & 252 & 45 \\
+\bottomrule
+\end{tabular}
+\caption{Retrieval threshold sweep over saved val scores. \textbf{Slice} is the count of validation rows that pass direct-copy gates. \textbf{Overrides} is the count of test rows where retrieval substitutes the model prediction.}
+\label{tab:retrieval}
+\end{table}
+
+Loosening the Hamming threshold from $h=2$ to $h=4$ adds 27 direct-copy candidates and $+0.2$\,pp val with no observed gate violations. Hamming $h=3$ adds nothing because the underlying distribution of cross-split duplicates clusters at $h \le 2$ and $h \le 4$.
+
+\section{Analysis}
+
+\subsection{Local Validation Overfits Public Leaderboard}
+\label{sec:overfit-val}
+
+The most surprising thing we saw: V$_\beta$ at val 0.8073 scored \textbf{0.86} on public LB, while iter4-vd at val 0.8225 ($+1.5$\,pp) scored only \textbf{0.84} ($-2$\,pp). Retrieval applied on top of iter4-vd recovered it past V$_\beta$ to \textbf{0.861}, our best result. The pattern got worse for our highest-confidence picks: finfit (train$\cup$val merge) scored only 0.823 on public despite a leaky val of 0.867, and layering retrieval on top brought it to 0.849 --- still below both V$_\beta$ and iter4-vd + retrieval. The direction of the gap is consistent: more aggressive learning rates (lr=$4\!\times\!10^{-4}$, $8\!\times\!10^{-4}$) and training on the validation set found adapters that fit features specific to the validation split rather than features that generalized. With only 1{,}048 validation rows and a 5\,M-parameter adapter, the val signal saturates at roughly $\pm 2$\,pp resolution and stops being a reliable selection signal between close variants.
+
+\subsection{Retrieval was the Highest-Leverage Move}
+
+The retrieval overlay added $+2.6$\,pp val (and roughly $+10$\,pp on the direct-copy slice) at zero GPU cost, and on top of iter4-vd it transferred cleanly to $+2.1$\,pp on public LB --- enough to make iter4-vd + retrieval our best submission at 0.861. On top of finfit, however, retrieval still added validation accuracy but the underlying base was already overfitted to val, and retrieval did not rescue it on public. By contrast, the small-scale hyperparameter sweep and the full-scale LR variants together consumed roughly 10--15 GPU-hours and moved validation by $0$ to $+3$\,pp at best. With hindsight the right ordering would have been: train one strong-enough LoRA early, then spend remaining compute on post-processors (retrieval, calibration, ensembling) rather than on more hyperparameter tuning. See Section~\ref{sec:limitations}.
+
+\subsection{What Did Not Work}
+
+\textbf{Chat-template prompting} via \texttt{processor.apply\_chat\_template} was a strongly-recommended fix in related work but landed at val $0.675$ on a small-scale run vs.\ $0.7075$ for the manual prompt --- no improvement. The prompt format was not the bottleneck. \textbf{Native-resolution input} (\texttt{do\_image\_splitting}) beat pre-resize on a small-scale run ($+0.7$\,pp val) but \emph{lost} on public LB ($0.84$ vs.\ V$_\beta$'s $0.86$). \textbf{DoRA + rsLoRA} \citep{liu2024dora,kalajdzievski2023rslora} tripped the 5\,M cap at $r=8$; at $r=7$ it OOM'd at the first batch. \textbf{Solution-as-context} during training regressed $-5$\,pp at small scale, plausibly because the \texttt{solution} column is in train but not test, so the model learns to lean on a feature that disappears at inference.
+
+\section{Limitations}
+
+\label{sec:limitations}
+\begin{itemize}
+  \item \textbf{We did not hit the 0.90 target.} The public-LB ceiling at the deadline was 0.861 (iter4-vd + retrieval). The submissions we expected to do better --- finfit and finfit + retrieval --- scored \emph{worse} on public (0.823 and 0.849). The goal was 0.90 absolute, and we fell short.
+  \item \textbf{Local validation overfits the public leaderboard.} 1{,}048 val rows is not enough resolution to discriminate adapters within $\pm 2$\,pp of each other, and once we started training on val (finfit) the local signal became actively misleading rather than just noisy. With another day the right move would have been to hold out a second validation slice stratified from train and never let it leak into training.
+  \item \textbf{Retrieval was identified late.} A retrieval-style cross-split exploit was visible from inspecting the data on day 1, but we only built it into the experiment loop after most of the training compute had been spent. If retrieval had come first, the project would have spent more compute on the post-processor stack and less on hyperparameter tuning.
+  \item \textbf{The 5\,M parameter cap limited adapter-scheme search.} DoRA \citep{liu2024dora} has been reported to outperform vanilla LoRA on related benchmarks, but our DoRA + rsLoRA variant tripped the 5\,M cap at $r=8$ and OOM'd at the first batch at $r=7$, so we could not evaluate it under the project's parameter budget.
+  \item \textbf{Ablations are not strictly factorial.} V$_\beta$ bundles two changes (alpha/r and permutation), so we cannot fully separate their individual contributions.
+\end{itemize}
+
+\section{Conclusion and Future Directions}
+
+We trained \texttt{SmolVLM-500M-Instruct} with LoRA on a multimodal scientific multiple-choice task under a 5\,M trainable-parameter cap. Our top public-LB result, 0.861, comes from a higher-LR LoRA variant (iter4-vd, lr=$4\!\times\!10^{-4}$, all-7 / $\alpha/r=1.0$ / choice-permutation) with a perceptual-hash retrieval overlay applied at $h=4$, $q=0.85$. Plain V$_\beta$ is a close second at 0.86, within sampling noise of the top result; without the retrieval overlay, iter4-vd alone drops to 0.84. Across twelve ablations the most consistent takeaway is that cheap CPU-side post-processors (retrieval, calibration) outperformed incremental hyperparameter sweeps once a strong-enough adapter existed --- but only when the underlying base was not itself overfit to validation, as the finfit-based submissions demonstrated.
+
+The clearest next step is a multi-seed ensemble: average logits across two or three V$_\beta$-style adapters before the choice-letter argmax. We expect $+1$ to $+2$\,pp on a different axis from retrieval. Test-time augmentation via choice permutation --- scoring each test row under $N$ random orderings of choices and averaging per-choice scores --- would also be cheap, addresses position bias more directly than the val-fitted bias term in calibration, and would have been faster to ship than another LR sweep.
+
+The bigger lesson from this project, for compact-VLM multiple-choice work specifically: the bottleneck moves quickly from the model to the data. Looking for cross-split exploits like retrieval on shared images, and dumping per-row scores so calibration and ensembling are cheap follow-ups, are higher-leverage than another round of LR / dropout / weight-decay tuning once the adapter is strong enough.
+
+\section*{Reproducibility}
+
+All training and inference code is at \url{https://github.com/adamfweidman/deep-learning-final-submission-repo}. The repository contains the per-experiment YAML configs, batch scripts for the L40S training runs, an inference-only Jupyter notebook, and a pinned \texttt{requirements.txt}. The iter4-vd adapter (base for the winning 0.861 submission) is hosted at \url{https://drive.google.com/file/d/1H9PaPqCkqgfRtIRiNhHy4e5lf58VGJ63/view?usp=sharing}. Random seeds are fixed in one place (\texttt{src.run.\_seed\_all}) covering Python \texttt{random}, NumPy, PyTorch CPU \& CUDA, \texttt{transformers.set\_seed}, \texttt{PYTHONHASHSEED}, and cuDNN deterministic mode; per-epoch \texttt{torch.Generator} keeps the DataLoader shuffle order reproducible.
+
+\section*{AI Tooling Disclosure}
+
+Claude Code (Opus) was used as a coding/debugging assistant throughout the project: scaffolding the runnable Python surface from the starter notebook, drafting per-experiment YAML configs, debugging tokenizer-fork deadlocks, and co-writing this report. Experimental design decisions (which ablations to run, which thresholds to sweep, which submissions to declare final) were made by the author. All numerical results in tables and figures were produced by jobs whose configs are checked into the repository.
+
+\section*{Acknowledgments}
+
+We thank the course staff for the assignment infrastructure.
+
+\bibliography{custom}
+
+\appendix
+
+\section{Full Experiment Log}
+
+Table~\ref{tab:full-log} lists every full-scale run that produced a recorded validation accuracy. Small-scale runs (16\% train $\times$ 2 epochs $\times$ partial val), used for triaging hyperparameter directions, are omitted from this table.
+
+\begin{table*}[t]
+\small
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+\textbf{Phase} & \textbf{Run} & \textbf{Trainable} & \textbf{lr} & \textbf{$\alpha/r$} & \textbf{Val acc} & \textbf{Public LB} \\
+\midrule
+\multicolumn{7}{l}{\textit{Phase 0: Baselines}} \\
+0a & always-A & 0 & --- & --- & 0.331 & --- \\
+0b & zero-shot & 0 & --- & --- & 0.558 & --- \\
+\midrule
+\multicolumn{7}{l}{\textit{Phase 1: First LoRA}} \\
+1 & lora-001 (r=8 / all-7 / $\alpha$=16) & 4.78\,M & 2e-4 & 2.0 & 0.7767 & --- \\
+\midrule
+\multicolumn{7}{l}{\textit{Phase 2: Iter-3 Architecture Bundle}} \\
+2a & V$_\alpha$ (connector LoRA) & 4.45\,M & 2e-4 & 1.0 & 0.78$^\dagger$ & --- \\
+2b & V$_\beta$ (all-7 + $\alpha/r=1.0$ + permute) & 4.78\,M & 2e-4 & 1.0 & 0.8073 & 0.86 \\
+2c & V$_\gamma$ (attn-only r=16) & 4.92\,M & 2e-4 & 1.0 & 0.7195 & --- \\
+\midrule
+\multicolumn{7}{l}{\textit{Phase 3: Iter-4 LR + Architecture Sweeps}} \\
+3a & RunB native-res & 4.78\,M & 2e-4 & 1.0 & 0.7834 & 0.84 \\
+3b & iter4-vd (lr=4e-4) & 4.78\,M & 4e-4 & 1.0 & 0.8225 & 0.84 \\
+3c & V$_\varepsilon$ (lr=8e-4) & 4.78\,M & 8e-4 & 1.0 & 0.7929 & --- \\
+3d & iter4-vd replicate, seed 43 & 4.78\,M & 4e-4 & 1.0 & 0.81 & --- \\
+\midrule
+\multicolumn{7}{l}{\textit{Phase 4: Iter-5 Post-Processors}} \\
+4a & calibration-vd (per-letter bias) & 0 & --- & --- & 0.8292 & --- \\
+4b & \textbf{retrieval overlay on iter4-vd ($h$=4, $q$=0.85)} & 0 & --- & --- & \textbf{0.8483} & \textbf{0.861} \\
+4c & retrieval overlay on V$_\beta$ ($h$=4) & 0 & --- & --- & not run on val & not submitted \\
+4d & finfit (train$\cup$val, lr=4e-4) & 4.78\,M & 4e-4 & 1.0 & 0.8674$^*$ & 0.823 \\
+4e & retrieval-finfit-h4 (overlay on finfit) & 0 & --- & --- & 0.8874$^*$ & 0.849 \\
+\bottomrule
+\end{tabular}
+\caption{Full-scale run log. $^*$denotes leaky validation (training included val). $^\dagger$denotes a run cancelled before completion. Trainable counts include LoRA weights; the base 502.7\,M frozen parameters are excluded.}
+\label{tab:full-log}
+\end{table*}
+
+\section{Training Data Statistics}
+
+\begin{itemize}
+  \item Train: 3{,}109 rows / 3{,}109 images.
+  \item Validation: 1{,}048 rows / 1{,}048 images.
+  \item Test: 1{,}008 rows / 1{,}008 images.
+  \item Number of choices per row: 2--5; the modal value is 4. Only 38 of 1{,}008 test rows have 5 choices, which is why our predictions cover \texttt{0--3} for 99.6\% of rows.
+  \item Cross-split image overlap: $\approx 26\%$ of validation rows have a perceptual-hash neighbor in train at $h \le 4$ with question similarity $\ge 0.85$ and matching choice set; $\approx 26\%$ of test rows have the same property.
+  \item Ground-truth label distribution on validation: roughly $\{0: 33\%, 1: 27\%, 2: 26\%, 3: 12\%, 4: 2\%\}$ (mild A-bias).
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,60 @@
+# LoRA training smoke: 200 train rows, 1 epoch, 64-row val eval.
+# Verifies the pipeline (loss steps, adapter saves, eval runs) before
+# committing to a full training run.
+
+attempt_id: "2026-05-05-lora-smoke-001"
+level: "exploratory"
+
+experiment:
+  name: "lora-smoke"
+  question: "Does the LoRA training pipeline run end-to-end, with decreasing loss and a non-trivial val accuracy?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-lora-smoke-001"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: 200
+  n_val_eval: 64
+  n_test: 0               # smoke writes no submission
+  epochs: 1
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  eval_batch_size: 48
+  log_every: 5
+  write_submission_csv: false
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  LoRA r=8 on q/k/v/o + gate/up/down across all 32 language layers
+  ≈ 4.34M trainable, under the 5M competition cap. Loss is masked
+  to the answer-letter token only.

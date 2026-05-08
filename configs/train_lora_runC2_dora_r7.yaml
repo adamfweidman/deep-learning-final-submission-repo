@@ -1,0 +1,54 @@
+attempt_id: "2026-05-06-runC2-dora-r7"
+level: "exploratory"
+experiment:
+  name: "runC2-dora-r7"
+  question: "DoRA+rsLoRA on V_β-shape config but r=7 to fit cap (DoRA adds ~277k magnitude params)"
+  branch: "exploit"
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-runC2-dora-r7"
+  seed: 56
+  baseline: "always_a"
+  img_size: 224
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 5
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 7
+  lora_alpha: 7
+  lora_dropout: 0.05
+  use_dora: true
+  use_rslora: true
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+  submission_threshold: 0.78
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+resources: {}
+notes: |
+  RunC2: same as failed RunC but r=7 instead of r=8 to make room for DoRA magnitudes (~277k extra). Estimated trainable: V_β LoRA × 7/8 + DoRA = 4.19M + 277k = 4.47M. Under cap. alpha=7 (alpha/r=1.0).

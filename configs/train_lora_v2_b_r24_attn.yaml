@@ -1,0 +1,67 @@
+# Iter-2 / Variant B: capacity bet. r=24 on attention-only (q/k/v/o)
+# instead of r=8 on all 7 modules. Trainable: 32 layers × 6400 × 24
+# = 4,915,200 — under the 5M cap with margin. 5 epochs.
+
+attempt_id: "2026-05-06-lora-002b-r24-attn"
+level: "exploratory"
+
+experiment:
+  name: "lora-2b-r24-attn"
+  question: "Does r=24 attention-only (4.92M trainable) beat r=8 all-modules (4.78M trainable)?"
+  branch: "broaden"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-002b-r24-attn"
+  seed: 43
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 5
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 24
+  lora_alpha: 48          # standard alpha=2*r
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  train_prefetch_factor: 2
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Bundle position: B — capacity bet. Attention-only because the
+  reasoning over choices is mostly attention-mediated; MLPs at
+  bf16 are usually fine to leave frozen. Walltime 03:00:00 (5 ep ×
+  ~35 min = 175 min).

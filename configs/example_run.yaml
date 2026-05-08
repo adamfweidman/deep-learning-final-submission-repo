@@ -1,0 +1,47 @@
+# Project-specific smoke config for deep-learning-final.
+#
+# Per docs/design.md sec 10 and sec 14: every new attempt is a new
+# YAML file, not an in-place edit. Editing a closed attempt's YAML is
+# a silent parameter change and is disallowed.
+#
+# Run:
+#   python -m src.run --config configs/example_run.yaml
+
+attempt_id: "2026-05-05-smoke-001"
+level: "exploratory"
+
+experiment:
+  name: "smoke"
+  question: "Does the runnable Python surface load data, validate schemas, and write a valid submission?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "float32"
+  max_tokens: 8192   # enforced floor; raise for thinking models
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+  n_examples: null        # null = check all rows for image resolution
+
+run:
+  mode: "smoke"           # smoke | baseline | preflight
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-smoke-001"
+  seed: 42
+  baseline: "always_a"    # always_a | majority_letter
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/hf_cache"
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Smoke-only attempt. No model load, no training. Validates CSV
+  schemas, resolves every image path, computes the always-A baseline
+  on validation, and writes a label-baseline submission for test.

@@ -1,0 +1,47 @@
+# Tiny SLURM smoke for the zero-shot scoring path.
+#
+# Loads the model offline, scores 10 validation examples, and writes
+# no submission. Purpose is to catch tokenizer / prompt / device bugs
+# in the smallest possible job before submitting the full eval.
+
+attempt_id: "2026-05-05-zeroshot-smoke-001"
+level: "exploratory"
+
+experiment:
+  name: "smolvlm-zero-shot-smoke"
+  question: "Does the zero-shot scoring path produce sensible per-example predictions on a small slice?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "float32"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "zero_shot"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-zeroshot-smoke-001"
+  seed: 42
+  baseline: "always_a"
+  n_val: 10
+  n_test: 0           # 0 = empty test slice; submission.csv is only written when n_test is null
+  img_size: 224
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Pre-flight already validated cache_hit + offline_load_ok in
+  attempt 2026-05-05-preflight-001 (job 8046409). This smoke only
+  exercises the scoring loop.

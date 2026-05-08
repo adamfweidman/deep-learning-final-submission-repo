@@ -1,0 +1,69 @@
+# Iter-3 / V_β (incremental on validated 0.7767 baseline):
+# Same r=8 / all 7 Llama target modules as 8055893, with two
+# small additions:
+#   - alpha=8 (alpha/r=1.0; was 16 ⇒ 2.0 in 8055893; suppresses drift).
+#   - choice_permute=True (zero-cost augmentation; literature-grounded).
+# No connector training (that's V_α). Tests just permutation+alpha.
+
+attempt_id: "2026-05-06-lora-3b-allmod-permute"
+level: "exploratory"
+
+experiment:
+  name: "lora-3b-allmod-permute"
+  question: "Does choice-permute + alpha/r=1.0 lift the all-modules baseline above 0.85?"
+  branch: "exploit"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-3b-allmod-permute"
+  seed: 43
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 5
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8                       # alpha/r = 1.0 (was 2.0)
+  lora_dropout: 0.05
+  # default target_modules: q/k/v/o + gate/up/down
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  V_β = minimal change off the validated 0.7767 path. Isolates the
+  permutation+alpha effect from the connector effect tested in V_α.
+  Together V_α and V_β factor out which intervention matters.

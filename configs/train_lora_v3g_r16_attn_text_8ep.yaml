@@ -1,0 +1,80 @@
+# Iter-3 / V_γ: highest-capacity attention-only variant within budget,
+# more training, plus the validated permutation augmentation.
+#
+# r=16 LoRA on q,k,v,o of TEXT TOWER ONLY (regex matches text_model
+# self_attn modules; vision attention excluded). 8 epochs (vs 5).
+# choice_permute=True. alpha=8 (alpha/r=0.5; conservative scale).
+#
+# Trainable budget per layer at r=16, attn-only:
+#   q_proj: 16*(960+960) = 30,720
+#   k_proj: 16*(960+320) = 20,480
+#   v_proj: 16*(960+320) = 20,480
+#   o_proj: 16*(960+960) = 30,720
+#   = 102,400 per layer × 32 layers = 3,276,800 ≈ 3.28M trainable.
+# Well under the 5M cap.
+
+attempt_id: "2026-05-06-lora-3g-r16attn-8ep"
+level: "exploratory"
+
+experiment:
+  name: "lora-3g-r16attn-8ep"
+  question: "Does r=16 attention-only text + 8 epochs + permute clear val_acc 0.85? (V_α trailed; V_β trajectory promising but capacity-limited)"
+  branch: "broaden"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-3g-r16attn-8ep"
+  seed: 45
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 8
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 16
+  lora_alpha: 8                 # alpha/r = 0.5; restraint vs early instability
+  lora_dropout: 0.05
+  target_modules_regex: "^.*text_model\\.layers\\.\\d+\\.self_attn\\.(q_proj|k_proj|v_proj|o_proj)$"
+  unfreeze_modules: []
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Inline preflight rationale (smoke skip): same v2 code path as
+  the validated 8086618 / 8086613 / 8086779 runs; only hparams
+  differ. Trainable count: 3.28M (computed exactly above and
+  enforced by runtime cap-assert). Walltime budget at 8 epochs ×
+  ~38 min/epoch = 304 min; submit with --time=05:00:00 for slack.

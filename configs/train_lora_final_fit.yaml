@@ -1,0 +1,46 @@
+attempt_id: "2026-05-06-final-fit-tv"
+level: "exploratory"
+experiment:
+  name: "final-fit-trainval"
+  question: "Final-fit on train+val concatenated using iter4-vd's winning hparams. Paper-scout Q1: +1-2 pp lift expected."
+  branch: "exploit"
+model: {name: "HuggingFaceTB/SmolVLM-500M-Instruct", dtype: "bfloat16", max_tokens: 8192}
+data: {data_dir: "data", train_csv: "data/train.csv", val_csv: "data/val.csv", test_csv: "data/test.csv", sample_submission_csv: "data/sample_submission.csv"}
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-final-fit-tv"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 4                     # iter4-vd best at ep 4 (=0.8216); use same epoch count
+  batch_size: 4
+  grad_accum: 2
+  lr: 4.0e-4                    # iter4-vd's winning LR
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  choice_permute: true
+  use_val_for_training: true    # train+val concatenated
+  eval_batch_size: 32
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 99       # don't early-stop; val is now in train, so val_acc isn't a hold-out
+  write_submission_csv: true
+  submission_threshold: 0.0     # always write since this is the final candidate
+preflight: {hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache", download_first: false, snapshot_only: false, offline_after: true}
+resources: {}
+notes: |
+  Paper-scout iter-5 Q1 recipe. iter4-vd's winning hparams:
+  r=8/all/alpha=8/lr=4e-4/permute=true. 4 epochs (vd's best epoch).
+  use_val_for_training=true → train on (3109 + 1048) = 4157 rows.
+  early_stop disabled because val is in train; the live val_acc here
+  will be near-perfect by ep 2-3 (training leakage). Submission
+  threshold=0 so test eval + submission always run.

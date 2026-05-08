@@ -1,0 +1,50 @@
+# Zero-shot SmolVLM-500M-Instruct evaluation on validation + test.
+#
+# Predicts each example by comparing the next-token log-prob of each
+# candidate letter (" A", " B", ...) at the position right after
+# "Answer:" in the prompt. No training, no fine-tuning, no adapters —
+# this is the floor that any in-budget fine-tune must beat.
+
+attempt_id: "2026-05-05-zeroshot-001"
+level: "exploratory"
+
+experiment:
+  name: "smolvlm-zero-shot-val"
+  question: "What is SmolVLM-500M-Instruct's zero-shot validation accuracy via choice-letter log-likelihood, and how does it compare to the always-A floor (0.331)?"
+  branch: "broaden"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"      # l40s supports bf16 well; ~2x throughput vs fp32, no MC accuracy loss expected
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "zero_shot"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-zeroshot-001"
+  seed: 42
+  baseline: "always_a"
+  n_val: null         # null = full validation (1048)
+  n_test: null        # null = full test (1008); only when full does the run write submission.csv
+  img_size: 224
+  batch_size: 48      # text capped to 2000 chars in build_prompt; image expands to 1088 tokens; per-example seq ~1600 → bs=48 ≈ 20 GB peak on l40s 48 GB.
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false   # cache already populated by 2026-05-05-preflight-001
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Floor comparison: always-A baseline is 0.331 on val (smoke run on
+  2026-05-05). A working zero-shot model should clear that floor; if
+  it doesn't, the prompt format or tokenizer letter encoding needs a
+  diagnostic before any fine-tune is worth running.

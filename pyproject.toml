@@ -1,0 +1,36 @@
+[project]
+name = "deep-learning-final"
+version = "0.0.1"
+description = "Pixels to Predictions: SmolVLM-500M-Instruct multimodal multiple-choice QA."
+readme = "PROJECT.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+    "huggingface-hub>=0.24",
+    "imagehash>=4.3",
+]
+
+[project.optional-dependencies]
+# Pulled only when the model preflight or training paths are exercised.
+# The smoke path does not import these.
+model = [
+    "torch>=2.2",
+    "transformers==4.57.6",
+    "accelerate>=0.33",
+    "peft>=0.18",
+    "safetensors>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.uv]
+package = true

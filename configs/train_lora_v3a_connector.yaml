@@ -1,0 +1,77 @@
+# Iter-3 / V_α (revised after preflight BLOCK):
+#
+# Original plan unfroze the full connector linear (12288×960 = 11.8M
+# params) which trips the 5M cap. Revised: LoRA on top of the
+# connector instead of full unfreezing (~106k extra trainable at
+# r=8) plus the same r=8 LoRA on all 7 Llama modules of the text
+# tower. Total trainable ≈ 4.45M ≤ 5M.
+#
+# Sources unchanged: Zhou et al. 2024 + Zong et al. 2024.
+
+attempt_id: "2026-05-06-lora-3a-connector"
+level: "exploratory"
+
+experiment:
+  name: "lora-3a-connector"
+  question: "Does adding LoRA on the connector projection on top of LoRA-on-all-text-modules clear val_acc 0.85 (vs 0.7767 baseline)?"
+  branch: "exploit"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-3a-connector"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 5
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  # PEFT does re.fullmatch on the full module path. Two alternatives:
+  #  (a) text-tower Llama modules under model.text_model.layers.<i>.{self_attn,mlp}.<m>
+  #  (b) connector linear at model.connector.modality_projection.proj
+  target_modules_regex: "^.*(?:text_model\\..*\\.(?:q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)|modality_projection\\.proj)$"
+  unfreeze_modules: []
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Trainable budget: ~4.34M (text Llama LoRA r=8 × 7 modules × 32 layers)
+  + ~106k (connector LoRA r=8 on the 12288×960 linear) = ~4.45M.
+  V_β is the same minus the connector LoRA — together they isolate
+  the connector contribution.

@@ -1,0 +1,47 @@
+# Re-score validation and write submission.csv from the best adapter
+# saved during attempt 2026-05-05-lora-001 (epoch 3, val_acc=0.7767).
+#
+# This is a small inference-only run: ~6 min on l40s with DataLoader
+# workers. Locks in a leaderboard candidate above the zero-shot floor
+# in case the parallel iteration-2 sweep doesn't beat it.
+
+attempt_id: "2026-05-06-infer-lora001-best"
+level: "exploratory"
+
+experiment:
+  name: "infer-lora001-best"
+  question: "What submission does the best adapter from 2026-05-05-lora-001 produce on val + test?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "infer"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-infer-lora001-best"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+  batch_size: 48
+  adapter_path: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-lora-001/adapter_best"
+
+train:
+  eval_num_workers: 4
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+notes: "Lock in submission for 0.7767 epoch-3 adapter. Workers keep GPU active to avoid low-util kill."

@@ -1,0 +1,60 @@
+attempt_id: "2026-05-06-runB-native-res"
+level: "exploratory"
+experiment:
+  name: "runB-native-res"
+  question: "Does removing the 224-pixel pre-resize (let processor see native res with image_splitting=True) push past 0.8073 baseline?"
+  branch: "broaden"
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-runB-native-res"
+  seed: 42
+  baseline: "always_a"
+  img_size: 0
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 4
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  choice_permute: true
+  eval_batch_size: 32
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+  submission_threshold: 0.78
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+resources: {}
+notes: |
+  Run B per paper-scout 2026-05-06: SmolVLM was designed for image
+  splitting at max_image_size=512. img_size=0 skips _load_image's
+  pre-resize so the processor sees native resolution. Expected lift:
+  +2-6 pp on diagram-heavy MC.
+  
+  Reduced eval_batch_size 48 -> 32 because longer image-token
+  sequences may push memory; submission_threshold=0.78 to gate
+  test-eval on beating V_β. 4 epochs (V_β plateaued at ep 4) with
+  patience=1.

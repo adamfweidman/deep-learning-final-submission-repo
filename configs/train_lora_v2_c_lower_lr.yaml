@@ -1,0 +1,67 @@
+# Iter-2 / Variant C: r=8/all (matches V_A so the LR change is the
+# only difference vs the 0.7767 baseline) at lr=5e-5 instead of 2e-4
+# and longer warmup (10%). Tests "was 2e-4 too aggressive, causing
+# the loss bouncing observed in 8055893's train log?".
+# 6 epochs (LR is lower so we need a bit more time).
+
+attempt_id: "2026-05-06-lora-002c-lower-lr"
+level: "exploratory"
+
+experiment:
+  name: "lora-2c-lower-lr"
+  question: "Does lr=5e-5 + 10% warmup over 6 epochs beat the lr=2e-4 baseline (0.7767)?"
+  branch: "diagnose"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-002c-lower-lr"
+  seed: 44
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 6
+  batch_size: 4
+  grad_accum: 2
+  lr: 5.0e-5
+  warmup_ratio: 0.10
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  train_prefetch_factor: 2
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Bundle position: C — finer optimization. Same architecture as the
+  0.7767 baseline. If C ≫ A's 5-epoch number, LR was the issue.
+  Walltime 03:30:00.

@@ -1,0 +1,39 @@
+attempt_id: "2026-05-06-explore-i1-solution-smoke"
+level: "exploratory"
+experiment:
+  name: "i1-solution-smoke"
+  question: "Smoke for solution-as-input: does the train-only flag (include_solution_train) wire correctly without OOM and without breaking eval (which has no solution column on test)?"
+  branch: "infra-fix"
+model: {name: "HuggingFaceTB/SmolVLM-500M-Instruct", dtype: "bfloat16", max_tokens: 8192}
+data: {data_dir: "data", train_csv: "data/train.csv", val_csv: "data/val.csv", test_csv: "data/test.csv", sample_submission_csv: "data/sample_submission.csv"}
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-explore-i1-solution-smoke"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+train:
+  n_train: 200
+  n_val_eval: 64
+  n_test: 0
+  epochs: 1
+  batch_size: 4
+  grad_accum: 2
+  lr: 4.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  choice_permute: true
+  include_solution_train: true
+  eval_batch_size: 32
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 5
+  eval_every_epoch: true
+  early_stop_patience: 2
+  write_submission_csv: false
+preflight: {hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache", download_first: false, snapshot_only: false, offline_after: true}
+resources: {}
+notes: "Tiny smoke to verify include_solution_train=True doesn't OOM (longer context with solution text) and that eval still works with include_solution=False."

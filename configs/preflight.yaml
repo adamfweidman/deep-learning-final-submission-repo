@@ -1,0 +1,59 @@
+# Model cache + offline-load preflight for SmolVLM-500M-Instruct.
+#
+# This is a SLURM-first preflight. Submit through the project SBATCH:
+#
+#   sbatch --export=ALL,CONFIG=configs/preflight.yaml \
+#     sbatch/run_experiment.SBATCH
+#
+# Two phases run in one process:
+#
+#   1. Download phase (download_first=true): snapshot_download into
+#      $HF_HOME under /scratch. Skip on a compute node that lacks
+#      internet by setting download_first=false and running phase 1
+#      from a network-enabled node beforehand.
+#   2. Offline-load verification: reload the processor and model with
+#      HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1 / local_files_only.
+#      This is what proves the cache is usable from a no-internet
+#      batch run before any long training is scheduled.
+#
+# Output: preflight_report.json under run.output_dir.
+
+attempt_id: "2026-05-05-preflight-001"
+level: "exploratory"
+
+experiment:
+  name: "model-cache-preflight"
+  question: "Is the SmolVLM-500M-Instruct cache present, and does it load with HF_HUB_OFFLINE=1?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "float32"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+  n_examples: 1
+
+run:
+  mode: "preflight"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-preflight-001"
+  seed: 42
+  baseline: "always_a"
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: true     # set false on a no-internet compute node after first cache hit
+  snapshot_only: false     # true skips processor/model load; not used when verifying offline load
+  offline_after: true      # cosmetic only; the load phase always uses offline flags
+
+resources: {}
+
+notes: |
+  Trainable count after freeze should be 0; the 5M budget applies once
+  adapter wiring is added. cache_hit + offline_load_ok must both be
+  true before scheduling any long training run.

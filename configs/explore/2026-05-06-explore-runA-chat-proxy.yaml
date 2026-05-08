@@ -1,0 +1,51 @@
+attempt_id: "2026-05-06-explore-runA-chat-proxy"
+level: "exploratory"
+experiment:
+  name: "runA-chat-proxy"
+  question: "At proxy scale (1000 train, 2 ep, n_val=400) does chat-template alignment lift val above the no-chat baseline?"
+  branch: "broaden"
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-explore-runA-chat-proxy"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+train:
+  n_train: 1000
+  n_val_eval: 400
+  n_test: 0
+  epochs: 2
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  choice_permute: true
+  use_chat_template: true
+  eval_batch_size: 32
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 2
+  write_submission_csv: false
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+resources: {}
+notes: "Re-test chat template at proper proxy scale. Previous 200/2 smoke was too small to read (no-chat-template smoke 8051447 also got 0.34 random)."

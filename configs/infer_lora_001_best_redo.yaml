@@ -1,0 +1,40 @@
+attempt_id: "2026-05-06-infer-lora001-redo"
+level: "exploratory"
+
+experiment:
+  name: "infer-lora001-redo"
+  question: "Re-run inference on the 0.7767 adapter to actually write submission.csv after the original infer (8066910) was OOM-killed mid-test-pass."
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "infer"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-infer-lora001-redo"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+  batch_size: 48
+  adapter_path: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-lora-001/adapter_best"
+
+train:
+  eval_num_workers: 4
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+notes: "Bumped mem to 64G to avoid OOM mid-test-pass that hit 8066910."

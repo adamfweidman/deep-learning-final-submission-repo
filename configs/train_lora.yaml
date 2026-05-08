@@ -1,0 +1,66 @@
+# Full LoRA fine-tune on the choice-letter task.
+#
+# Goal: clear val/leaderboard accuracy 0.90 starting from the 0.558
+# zero-shot floor. With 3109 train rows and a 5M trainable cap, train
+# r=8 LoRA on all 7 Llama target modules of the language tower for 5
+# epochs.
+
+attempt_id: "2026-05-05-lora-001"
+level: "exploratory"
+
+experiment:
+  name: "lora-full"
+  question: "Does LoRA r=8 on the language tower clear the 0.90 target on validation, starting from the 0.558 zero-shot floor?"
+  branch: "exploit"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-05-lora-001"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null              # full 3109
+  n_val_eval: null           # full 1048
+  n_test: null               # full 1008 -> writes submission.csv
+  epochs: 5
+  batch_size: 4              # bs=4 already saturates l40s memory at ~93%; bumping not feasible
+  grad_accum: 2              # effective batch 8
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  eval_batch_size: 48
+  log_every: 25
+  eval_every_epoch: true     # per-epoch val eval; saves best adapter
+  early_stop_patience: 1     # stop after one no-improvement epoch
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Smoke (2026-05-05-lora-smoke-001 / job 8051447) validated the
+  training pipeline: 4.78M trainable, loss decreasing, adapter
+  saves, inline eval runs. Full run: ~1945 update steps × ~5 s/step
+  ≈ 162 min training + ~3 min eval; allow 03:00:00 SLURM walltime.

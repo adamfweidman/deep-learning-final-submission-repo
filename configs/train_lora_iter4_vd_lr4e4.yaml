@@ -1,0 +1,39 @@
+attempt_id: "2026-05-06-iter4-vd-lr4e4"
+level: "exploratory"
+experiment:
+  name: "iter4-vd-lr4e4"
+  question: "V_β config × lr=4e-4 (E8/F1 proxy evidence): does lr=4e-4 at full scale beat V_β's 0.8073?"
+  branch: "exploit"
+model: {name: "HuggingFaceTB/SmolVLM-500M-Instruct", dtype: "bfloat16", max_tokens: 8192}
+data: {data_dir: "data", train_csv: "data/train.csv", val_csv: "data/val.csv", test_csv: "data/test.csv", sample_submission_csv: "data/sample_submission.csv"}
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-iter4-vd-lr4e4"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 5
+  batch_size: 4
+  grad_accum: 2
+  lr: 4.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+  submission_threshold: 0.80
+preflight: {hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache", download_first: false, snapshot_only: false, offline_after: true}
+resources: {}
+notes: "V_β config × lr=4e-4. Reissues the cancelled V_δ direction now justified by F1 proxy result (0.725 at lr=8e-4 vs E8 0.7075 at 4e-4 vs E11 0.665 at 2e-4 + dropout=0.2)."

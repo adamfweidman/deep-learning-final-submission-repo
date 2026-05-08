@@ -1,0 +1,67 @@
+# Iter-2 / Variant A: same hparams as 2026-05-05-lora-001 (r=8 all
+# 7 modules), but 8 epochs + workers + resumable. Tests whether the
+# 0.7767 plateau at epoch 3 was epoch-budget-limited.
+
+attempt_id: "2026-05-06-lora-002a-more-epochs"
+level: "exploratory"
+
+experiment:
+  name: "lora-2a-more-epochs"
+  question: "Does 8 epochs at r=8/all clear 0.85 (vs 0.7767 at 5 epochs)?"
+  branch: "exploit"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-002a-more-epochs"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: null
+  n_val_eval: null
+  n_test: null
+  epochs: 8
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  train_prefetch_factor: 2
+  log_every: 25
+  eval_every_epoch: true
+  early_stop_patience: 1
+  write_submission_csv: true
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: |
+  Bundle position: A — more-epochs control. If V_A val_acc plateaus
+  near 0.78 by epoch 5, capacity (V_B) or LR (V_C) is the lever.
+  Walltime budget: with workers cutting eval ~9 min -> ~3 min, 8
+  epochs ≈ 8 × (32 train + 3 eval) = 280 min ≈ 4:40. Set walltime
+  04:30:00; resume_from kicks in if killed.

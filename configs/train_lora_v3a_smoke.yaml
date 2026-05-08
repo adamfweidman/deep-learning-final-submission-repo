@@ -1,0 +1,64 @@
+# Smoke for V_α revised: verify the regex matches text-tower Llama
+# modules + connector projection, and that trainable count lands in
+# the predicted ~4.45M.
+
+attempt_id: "2026-05-06-lora-3a-smoke"
+level: "exploratory"
+
+experiment:
+  name: "lora-3a-smoke"
+  question: "Does the V_α regex match the intended modules and produce ~4.45M trainable?"
+  branch: "infra-fix"
+
+model:
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
+  dtype: "bfloat16"
+  max_tokens: 8192
+
+data:
+  data_dir: "data"
+  train_csv: "data/train.csv"
+  val_csv: "data/val.csv"
+  test_csv: "data/test.csv"
+  sample_submission_csv: "data/sample_submission.csv"
+
+run:
+  mode: "train"
+  output_dir: "/scratch/${USER}/deep-learning-final/runs/2026-05-06-lora-3a-smoke"
+  seed: 42
+  baseline: "always_a"
+  img_size: 224
+
+train:
+  n_train: 64
+  n_val_eval: 64
+  n_test: 0
+  epochs: 1
+  batch_size: 4
+  grad_accum: 2
+  lr: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  lora_r: 8
+  lora_alpha: 8
+  lora_dropout: 0.05
+  target_modules_regex: "^.*(?:text_model\\..*\\.(?:q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)|modality_projection\\.proj)$"
+  unfreeze_modules: []
+  choice_permute: true
+  eval_batch_size: 48
+  eval_num_workers: 4
+  train_num_workers: 4
+  log_every: 5
+  eval_every_epoch: true
+  early_stop_patience: 2
+  write_submission_csv: false
+
+preflight:
+  hf_cache_dir: "/scratch/${USER}/deep-learning-final/hf_cache"
+  download_first: false
+  snapshot_only: false
+  offline_after: true
+
+resources: {}
+
+notes: "Tiny smoke: prove the regex hits ~4.45M trainable before the 3.5h V_α full run."

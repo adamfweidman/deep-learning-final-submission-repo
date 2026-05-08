@@ -11,13 +11,21 @@ Public code release. Multimodal multiple-choice reasoning on the **Pixels to Pre
 | Always-A baseline | 0.331 | — |
 | Zero-shot SmolVLM-500M | 0.558 | — |
 | LoRA r=8 / all 7 modules / α=16 (lora-001) | 0.7767 | — |
-| **V_β** (r=8, all 7, α=8, choice-permute) | **0.8073** | **0.86** ← best |
+| V_β (r=8, all 7, α=8, choice-permute) | 0.8073 | 0.86 |
 | iter4-vd (V_β + lr=4e-4) | 0.8225 | 0.84 |
-| iter4-vd + retrieval (h=4, qsim=0.85) | 0.8483 | 0.86 |
+| **iter4-vd + retrieval (h=4, qsim=0.85)** | **0.8483** | **0.861** ← best |
 | finfit (train+val) | 0.8674 (leaky) | 0.823 |
 | finfit + retrieval (h=4) | 0.8874 (leaky) | 0.849 |
 
-**Headline:** plain V_β at 0.86 is the top public-LB result. Two submissions we expected to do better — finfit and finfit + retrieval — actually scored lower on public despite higher local val. See the report for analysis.
+**Headline:** the best public-LB result is **iter4-vd + retrieval at 0.861** (a higher-LR LoRA with the perceptual-hash retrieval overlay). Plain V_β at 0.86 is a close second. Two submissions we expected to do better — finfit and finfit + retrieval — actually scored lower on public despite higher local val. See the report for the analysis.
+
+## Reproducing the 0.861 submission
+
+Three components fully reproduce the winning submission:
+
+1. **iter4-vd adapter** — config at `configs/train_lora_iter4_vd_lr4e4.yaml`. Train with `python -m src.run --config configs/train_lora_iter4_vd_lr4e4.yaml`, or download the trained adapter from `WEIGHTS.md` (link added at submission time) and place it at `./adapter_best/`.
+2. **Retrieval overlay** — `scripts/retrieval_overlay.py` with thresholds `--hamming-thresh 4 --qsim-thresh 0.85 --require-choice-match`.
+3. **pHash cache** — should live at `data/phash_cache/{train,val,test}_phash.json`. The retrieval script auto-computes this on first run and caches it; the cache is data-derived (model-independent) and one-time.
 
 ## Repo layout
 
@@ -70,21 +78,22 @@ python -m src.run --config configs/train_lora_final_fit.yaml
 ### Inference + submission CSV
 
 ```bash
-# Set adapter_path in configs/infer_vb_best.yaml to your adapter_best path, then:
-python -m src.run --config configs/infer_vb_best.yaml
+# For the winning iter4-vd + retrieval pipeline:
+# Set adapter_path in configs/infer_iter4_vd_best.yaml to your adapter_best path, then:
+python -m src.run --config configs/infer_iter4_vd_best.yaml
+
+# (Or for the V_β baseline at 0.86 public, use configs/infer_vb_best.yaml)
 ```
 
-Writes `runs/2026-05-06-infer-vb-best/submission.csv`.
-
-### Retrieval overlay (the +2 pp post-processor)
+### Retrieval overlay (the post-processor that produced 0.861)
 
 ```bash
 python scripts/retrieval_overlay.py \
-  --base-submission runs/2026-05-06-infer-vb-best/submission.csv \
+  --base-submission runs/2026-05-06-infer-iter4-vd-best/submission.csv \
   --hamming-thresh 4 \
   --qsim-thresh 0.85 \
   --require-choice-match \
-  --out runs/retrieval-vbeta-h4/
+  --out runs/retrieval-vd-h4q085/
 ```
 
 ### Inference notebook (Colab/Kaggle-runnable)
@@ -93,8 +102,9 @@ python scripts/retrieval_overlay.py \
 
 ## Trained adapter weights
 
-- **V_β `adapter_best/`** (val 0.8073, public LB 0.86): see `WEIGHTS.md` (link added at submission time).
-- **final-fit `adapter_best/`**: see `WEIGHTS.md`.
+- **iter4-vd `adapter_best/`** (val 0.8225, with retrieval public LB **0.861** — winning submission): see `WEIGHTS.md`.
+- **V_β `adapter_best/`** (val 0.8073, public LB 0.86): see `WEIGHTS.md`.
+- **final-fit `adapter_best/`** (val 0.8674 leaky, public 0.823): see `WEIGHTS.md`.
 
 > If the link is unreachable, please email afw8937@nyu.edu.
 
